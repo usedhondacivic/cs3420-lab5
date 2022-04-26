@@ -240,6 +240,26 @@ void process_start (void){
 	process_begin(); // Initialize the first process
 }
 
+node * rt_process_select(double_linked_list * list, realtime_t cur_time) {
+	node *cur_node;
+	if(list->list_start == NULL) {
+		assert(list->list_end == NULL);
+		return NULL;
+	} else {
+		cur_node = list->list_start;
+		while(cur_node->next != NULL && compare_realtimes(cur_node->val->start, cur_time) == 1) {
+			cur_node = cur_node->next;
+		}
+
+		// reached end of list, i.e. no node in list has start time before or equal to cur_time
+		if(cur_node->next == NULL) {
+			return NULL;
+		} else {
+			return cur_node;
+		}
+	}
+}
+
 unsigned int * process_select(unsigned int * cursp){
 	/*
 	node *fst = remove_first_elem(&scheduler); //Check the first element
