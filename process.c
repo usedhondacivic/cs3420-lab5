@@ -8,7 +8,7 @@
 
 process_t *current_process = NULL;
 
-volatile extern realtime_t current_time;
+volatile realtime_t current_time;
 
 int process_deadline_met;
 int process_deadline_miss;
@@ -41,11 +41,18 @@ struct double_linked_list scheduler = {
 
 // adds element to the beginning of the list
 void add_elem_begin(double_linked_list * list, node * elem) {
-	assert(list->list_start->prev == NULL);
-	elem->next = list->list_start;
-	elem->prev = NULL;
-	list->list_start->prev = elem;
-	list->list_start = elem;
+	if(list->list_start == NULL){
+		assert(list->list_end == NULL);
+		elem->next = NULL;
+		elem->prev = NULL;
+		list->list_start = elem;
+	}else{
+		assert(list->list_start->prev == NULL);
+		elem->next = list->list_start;
+		elem->prev = NULL;
+		list->list_start->prev = elem;
+		list->list_start = elem;
+	}
 }
 
 // adds element to the end of the list
@@ -112,10 +119,13 @@ int process_create (void(*f) (void), int n){
 }
 
 int process_rt_create(void (*f)(void), int n, realtime_t* start, realtime_t* deadline){
-	return -1;
+	return 1;
 }
 
 void process_start (void){
+	current_time.sec = 0;
+	current_time.msec = 0; //Set clock time to 0;
+
 	NVIC_EnableIRQ(PIT_IRQn); // Enable PIT Interupts
 
 	SIM->SCGC6 = SIM_SCGC6_PIT_MASK; // Enable clock to PIT
@@ -129,6 +139,11 @@ void process_start (void){
 
 	PIT->CHANNEL[0].TCTRL |= 0x1; //Enable channel 0
 	PIT->CHANNEL[1].TCTRL |= 0x1; //Enable channel 1
+
+	scheduler.list_start->next = NULL;
+	scheduler.list_start->prev = NULL;
+	scheduler.list_end->next = NULL;
+	scheduler.list_end->prev = NULL;
 
 	process_begin(); // Initialize the first process
 }
@@ -159,5 +174,9 @@ unsigned int * process_select(unsigned int * cursp){
 }
 
 void PIT1_Service(){
-	while(1);
+	current_time.msec ++;
+	if(current_time.msec >= 1000){
+		current_time.sec++;
+		current_time.msec = 0;
+	}
 }
