@@ -289,12 +289,12 @@ node * rt_process_select(double_linked_list * list, realtime_t cur_time) {
 		return NULL;
 	} else {
 		cur_node = list->list_start;
-		while(cur_node->next != NULL && compare_realtimes(cur_node->val->start, cur_time) == 1) {
+		while(cur_node != NULL && compare_realtimes(cur_node->val->start, cur_time) == 1) {
 			cur_node = cur_node->next;
 		}
 
 		// reached end of list, i.e. no node in list has start time before or equal to cur_time
-		if(cur_node->next == NULL) {
+		if(cur_node == NULL) {
 			return NULL;
 		} else { // cur_node is the realtime process with earliest deadline that also has start time before or equal to current time
 			// remove cur_node from the list
