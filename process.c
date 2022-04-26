@@ -21,6 +21,10 @@ struct process_state {
 	unsigned int * sp; // Current Stack pointer
 	unsigned int * orig_sp; // Original Stack pointer
 	int n; // Size allocated
+
+	bool is_rt;
+	realtime_t start;
+	realtime_t deadline;
 };
 
 typedef struct node {
@@ -35,6 +39,11 @@ typedef struct double_linked_list {
 } double_linked_list;
 
 struct double_linked_list scheduler = {
+	.list_start = NULL,
+	.list_end = NULL
+};
+
+struct double_linked_list rt_scheduler = {
 	.list_start = NULL,
 	.list_end = NULL
 };
@@ -55,6 +64,21 @@ void add_elem_begin(double_linked_list * list, node * elem) {
 	}
 }
 
+// returns:
+// 1 iff a is greater/later than b
+// -1 iff b is less than/before b
+// 0 iff a==b
+int compare_realtimes(realtime_t a, realtime_t b) {
+	int a_ms = a.sec + 1000*a.msec;
+	int b_ms = b.sec + 1000*b.msec;
+
+	if(a_ms > b_ms) {
+		return 1;
+	} else if(a_ms < b_ms) {
+		return -1;
+	} else return 0;
+}
+
 // adds element to the end of the list
 void add_elem_end(double_linked_list * list, node * elem) {
 	if(list->list_start == NULL) {
@@ -73,6 +97,52 @@ void add_elem_end(double_linked_list * list, node * elem) {
 		elem->next = NULL;
 	}
 }
+
+// precondition: list is sorted by increasing deadline
+// adds element to list, sorted by deadline
+void add_elem_rt_sorted(double_linked_list * list, node * elem) {
+	assert(elem->val->is_rt == true);
+	if(list->list_start == NULL) {
+		assert(list->list_end == NULL);
+		list->list_start = elem;
+		list->list_end = elem;
+
+		elem->next = NULL;
+		elem->prev = NULL;
+	} else {
+		/*
+		assert(list->list_end->next == NULL);
+		list->list_end->next = elem;
+		elem->prev = list->list_end;
+
+		list->list_end = elem;
+		elem->next = NULL;
+		*/
+
+		node *cur_node;
+
+		// special case
+		if(compare_realtimes(list->list_start->val->deadline, elem->val->deadline) != -1) {
+			add_elem_begin(list, elem);
+		} else {
+			cur_node = list->list_start;
+			while(cur_node->next != NULL && compare_realtimes(cur_node->next->val->deadline, elem->val->deadline) == -1) {
+				cur_node = cur_node->next;
+			}
+
+			// reached end of list
+			if(cur_node->next == NULL) {
+				add_elem_end(list, elem);
+			} else { //cur_node is last node with earlier deadline than new node
+				cur_node->next->prev = elem;
+				elem->next = cur_node->next;
+				elem->prev = cur_node;
+				cur_node->next = elem;
+			}
+		}
+	}
+}
+
 
 // removes and returns first element of list, null if list is empty
 node * remove_first_elem(double_linked_list * list) {
@@ -108,6 +178,7 @@ int process_create (void(*f) (void), int n){
 	new_elem_ptr->val->sp = process_stack_init(f, n);
 	new_elem_ptr->val->orig_sp = new_elem_ptr->val->sp;
 	new_elem_ptr->val->n = n;
+	new_elem_ptr->val->is_rt = false;
 	new_elem_ptr->prev = NULL;
 	new_elem_ptr->next = NULL;
 
@@ -118,8 +189,29 @@ int process_create (void(*f) (void), int n){
 	return 0;
 }
 
-int process_rt_create(void (*f)(void), int n, realtime_t* start, realtime_t* deadline){
-	return 1;
+int process_rt_create (void(*f) (void), int n, realtime_t *start, realtime_t *deadline) {
+
+	// Make an element for the queue containing info about the process
+	node *new_elem_ptr = malloc(sizeof(node));
+	new_elem_ptr->val = malloc(sizeof(process_t));
+
+	if(new_elem_ptr == NULL || new_elem_ptr->val == NULL){
+		return -1;
+	}
+	new_elem_ptr->val->sp = process_stack_init(f, n);
+	new_elem_ptr->val->orig_sp = new_elem_ptr->val->sp;
+	new_elem_ptr->val->n = n;
+	new_elem_ptr->val->is_rt = true;
+	new_elem_ptr->val->start = *start;
+	new_elem_ptr->val->deadline = *deadline;
+	new_elem_ptr->prev = NULL;
+	new_elem_ptr->next = NULL;
+
+	if(new_elem_ptr->val->sp == NULL) return -1; // If the new stack cannot be allocated, return and error
+
+	add_elem_rt_sorted(&rt_scheduler, new_elem_ptr); // Add the new element to the queue
+
+	return 0;
 }
 
 void process_start (void){
