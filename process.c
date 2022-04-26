@@ -166,6 +166,28 @@ node * remove_first_elem(double_linked_list * list) {
 	return elem;
 }
 
+// removes and returns last element of list, null if list is empty
+node * remove_last_elem(double_linked_list * list) {
+	struct node *elem;
+	if(list->list_start == NULL) {
+		assert(list->list_end == NULL);
+		elem = NULL;
+	} else {
+		assert(list->list_end->next == NULL);
+		elem = list->list_end;
+		list->list_end = list->list_end->prev;
+		elem->prev = NULL;
+		assert(elem->next == NULL);
+		if(list->list_end != NULL) {
+			list->list_end->next = NULL;
+		} else {
+			list->list_start = NULL;
+		}
+	}
+
+	return elem;
+}
+
 int process_create (void(*f) (void), int n){
 	// Make an element for the queue containing info about the process
 	node *new_elem_ptr = malloc(sizeof(node));
@@ -254,8 +276,21 @@ node * rt_process_select(double_linked_list * list, realtime_t cur_time) {
 		// reached end of list, i.e. no node in list has start time before or equal to cur_time
 		if(cur_node->next == NULL) {
 			return NULL;
-		} else {
-			return cur_node;
+		} else { // cur_node is the realtime process with earliest deadline that also has start time before or equal to current time
+			// remove cur_node from the list
+			if(cur_node == list->list_start) {
+				return remove_first_elem(list);
+			} else if(cur_node == list->list_end) {
+				return remove_last_elem(list);
+			} else {
+				// remove node from list, then return it
+				cur_node->prev->next = cur_node->next;
+				cur_node->next->prev = cur_node->prev;
+
+				cur_node->prev = NULL;
+				cur_node->next = NULL;
+				return cur_node;
+			}
 		}
 	}
 }
