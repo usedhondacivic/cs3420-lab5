@@ -317,13 +317,13 @@ node * rt_process_select(double_linked_list * list, realtime_t cur_time) {
 
 unsigned int * process_select(unsigned int * cursp){
 	node *fst = remove_first_elem(&scheduler); //Check the first element
-	if(current_process != NULL){
-		assert(fst->val == current_process);
-	}
 	if(cursp == NULL){ // Either the running process finished or it is the first time process_select is being called
 		if(!first_select){ //If its not the first time, free memory from the running process
+			if(current_process->is_rt){
+				add_elem_begin(&scheduler, fst);
+			}
 			process_stack_free(current_process->orig_sp, current_process->n);
-			free(fst);
+			free(current_process);
 			current_process = NULL;
 		}else{ // If it is the first time, put the element back in the front of the queue
 			add_elem_begin(&scheduler, fst);
