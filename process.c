@@ -211,6 +211,18 @@ int process_create (void(*f) (void), int n){
 	return 0;
 }
 
+realtime_t add_realtime(realtime_t a, realtime_t b) {
+	realtime_t sum;
+	if(a.msec + b.msec >= 1000) {
+		sum.sec = a.sec + b.sec + 1;
+		sum.msec = a.msec + b.msec - 1000;
+	} else {
+		sum.sec = a.sec + b.sec;
+		sum.msec = a.msec + b.msec;
+	}
+	return sum;
+}
+
 int process_rt_create (void(*f) (void), int n, realtime_t *start, realtime_t *deadline) {
 
 	// Make an element for the queue containing info about the process
@@ -224,8 +236,8 @@ int process_rt_create (void(*f) (void), int n, realtime_t *start, realtime_t *de
 	new_elem_ptr->val->orig_sp = new_elem_ptr->val->sp;
 	new_elem_ptr->val->n = n;
 	new_elem_ptr->val->is_rt = true;
-	new_elem_ptr->val->start = *start;
-	new_elem_ptr->val->deadline = *deadline;
+	new_elem_ptr->val->start = add_realtime(current_time, *start);
+	new_elem_ptr->val->deadline = add_realtime(new_elem_ptr->val->start, *deadline);
 	new_elem_ptr->prev = NULL;
 	new_elem_ptr->next = NULL;
 
