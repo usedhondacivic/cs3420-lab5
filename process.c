@@ -64,6 +64,14 @@ void add_elem_begin(double_linked_list * list, node * elem) {
 	}
 }
 
+void PIT1_Service(){
+	current_time.msec ++;
+	if(current_time.msec >= 1000){
+		current_time.sec++;
+		current_time.msec = 0;
+	}
+}
+
 // returns:
 // 1 iff a is greater/later than b
 // -1 iff b is less than/before b
@@ -308,16 +316,13 @@ node * rt_process_select(double_linked_list * list, realtime_t cur_time) {
 }
 
 unsigned int * process_select(unsigned int * cursp){
-	/*
 	node *fst = remove_first_elem(&scheduler); //Check the first element
-	*/
-
-	node *fst = remove_first_elem(&rt_scheduler); //Check the first realtime element
-	if(fst == NULL) fst = remove_first_elem(&scheduler); //check regular scheduler's first element only iff realtime scheduler is empty
-
+	if(current_process != NULL){
+		assert(fst->val == current_process);
+	}
 	if(cursp == NULL){ // Either the running process finished or it is the first time process_select is being called
 		if(!first_select){ //If its not the first time, free memory from the running process
-			process_stack_free(fst->val->orig_sp, fst->val->n);
+			process_stack_free(current_process->orig_sp, current_process->n);
 			free(fst);
 			current_process = NULL;
 		}else{ // If it is the first time, put the element back in the front of the queue
@@ -325,23 +330,41 @@ unsigned int * process_select(unsigned int * cursp){
 			first_select = false;
 		}
 	}else{
+		current_process->sp = cursp;
 		//Put running process back into queue
-		fst->val->sp = cursp;
-		add_elem_end(&scheduler, fst);
+		if(current_process->is_rt){
+			add_elem_begin(&scheduler, fst);
+		}else{
+			add_elem_end(&scheduler, fst);
+		}
 	}
 
-	//Get next process from linked list, return stack pointer
-	if(scheduler.list_start == NULL){
+	// Both queues are empty, we are done
+	if(scheduler.list_start == NULL && rt_scheduler.list_start == NULL){
 		return NULL;
 	}
-	current_process = scheduler.list_start->val;
-	return current_process->sp;
-}
 
-void PIT1_Service(){
-	current_time.msec ++;
-	if(current_time.msec >= 1000){
-		current_time.sec++;
-		current_time.msec = 0;
+	node *nxt = rt_process_select(&rt_scheduler, current_time);
+	//There is a RT process ready
+	if(nxt != NULL){
+		current_process = nxt->val;
+		free(nxt);
+	}else if(scheduler.list_start != NULL){ // There are no RT ready but there are non-RT
+		current_process = scheduler.list_start->val;
+	}else{ // There are no RT ready and there are also no non-RT
+		//Wait for next RT process to be ready
+		while(nxt == NULL){
+			// poll pit timer to update the timer
+			if(PIT->CHANNEL[1].TFLG == 1){
+				PIT1_Service();
+				PIT->CHANNEL[1].TFLG = 1;
+			}
+			nxt = rt_process_select(&rt_scheduler, current_time);
+		}
+		current_process = nxt->val;
+		free(nxt);
 	}
+
+	//Return the stack pointer of the new process
+	return current_process->sp;
 }
