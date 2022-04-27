@@ -70,6 +70,7 @@ void PIT1_Service(){
 		current_time.sec++;
 		current_time.msec = 0;
 	}
+	PIT->CHANNEL[1].TFLG = 1;
 }
 
 // returns:
@@ -271,8 +272,9 @@ void process_start (void){
 	PIT->CHANNEL[1].LDVAL = 0x000028F6; // 10,486 cycles @ 10.4Mhz = 1 ms per interupt
 	PIT->CHANNEL[1].TCTRL |= (1 << 1); // Enable interrupts for channel 1
 
-	PIT->CHANNEL[0].TCTRL |= 0x1; //Enable channel 0
+
 	PIT->CHANNEL[1].TCTRL |= 0x1; //Enable channel 1
+	PIT->CHANNEL[0].TCTRL |= 0x1; //Enable channel 0
 
 	scheduler.list_start->next = NULL;
 	scheduler.list_start->prev = NULL;
@@ -319,7 +321,7 @@ unsigned int * process_select(unsigned int * cursp){
 	node *fst = remove_first_elem(&scheduler); //Check the first element
 	if(cursp == NULL){ // Either the running process finished or it is the first time process_select is being called
 		if(!first_select){ //If its not the first time, free memory from the running process
-			if(current_process->is_rt){
+			if(current_process != NULL && current_process->is_rt){
 				add_elem_begin(&scheduler, fst);
 			}
 			process_stack_free(current_process->orig_sp, current_process->n);
@@ -332,11 +334,16 @@ unsigned int * process_select(unsigned int * cursp){
 	}else{
 		current_process->sp = cursp;
 		//Put running process back into queue
-		if(current_process->is_rt){
+		if(current_process != NULL && current_process->is_rt){
 			add_elem_begin(&scheduler, fst);
 		}else{
 			add_elem_end(&scheduler, fst);
 		}
+	}
+
+	if(current_process != NULL && current_process->is_rt){
+		current_process->sp = cursp;
+		return current_process->sp;
 	}
 
 	// Both queues are empty, we are done
