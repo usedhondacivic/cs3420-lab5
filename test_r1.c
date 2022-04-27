@@ -35,11 +35,11 @@
 /* Time structs for real-time processes */
 /*--------------------------------------*/
 
-realtime_t t_sRT1 = {0, 0};
+realtime_t t_sRT1 = {1, 0};
 realtime_t t_dRT1 = {10, 0};
 
 
-realtime_t t_sRT2 = {2, 0};
+realtime_t t_sRT2 = {3, 0};
 realtime_t t_dRT2 = {1, 0};
 
 
