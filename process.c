@@ -70,6 +70,8 @@ void PIT1_Service(){
 		current_time.sec++;
 		current_time.msec = 0;
 	}
+
+	// Clear interrupt
 	PIT->CHANNEL[1].TFLG = 1;
 }
 
@@ -78,8 +80,8 @@ void PIT1_Service(){
 // -1 iff b is less than/before b
 // 0 iff a==b
 int compare_realtimes(realtime_t a, realtime_t b) {
-	int a_ms = a.sec + 1000*a.msec;
-	int b_ms = b.sec + 1000*b.msec;
+	int a_ms = a.sec*1000 + a.msec;
+	int b_ms = b.sec*1000 + b.msec;
 
 	if(a_ms > b_ms) {
 		return 1;
@@ -245,8 +247,8 @@ int process_rt_create (void(*f) (void), int n, realtime_t *start, realtime_t *de
 	new_elem_ptr->val->orig_sp = new_elem_ptr->val->sp;
 	new_elem_ptr->val->n = n;
 	new_elem_ptr->val->is_rt = true;
-	new_elem_ptr->val->start = add_realtime(current_time, *start);
-	new_elem_ptr->val->deadline = add_realtime(new_elem_ptr->val->start, *deadline);
+	new_elem_ptr->val->start = *start;
+	new_elem_ptr->val->deadline = add_realtime(*start, *deadline);
 	new_elem_ptr->prev = NULL;
 	new_elem_ptr->next = NULL;
 
@@ -261,7 +263,11 @@ void process_start (void){
 	current_time.sec = 0;
 	current_time.msec = 0; //Set clock time to 0;
 
-	NVIC_EnableIRQ(PIT_IRQn); // Enable PIT Interupts
+	process_deadline_met = 0;
+	process_deadline_miss = 0; // Clear deadline stats
+
+
+	NVIC_EnableIRQ(PIT_IRQn); // Enable PIT Interrupts
 
 	SIM->SCGC6 = SIM_SCGC6_PIT_MASK; // Enable clock to PIT
 	PIT->MCR = 0x00; // Enable PIT timers
@@ -269,17 +275,12 @@ void process_start (void){
 	PIT->CHANNEL[0].LDVAL = 0x00004E20; // 20k cycles @ 10Mhz = 2 ms before switching processes
 	PIT->CHANNEL[0].TCTRL |= (1 << 1); // Enable interrupts for channel 0
 
-	PIT->CHANNEL[1].LDVAL = 0x000028F6; // 10,486 cycles @ 10.4Mhz = 1 ms per interupt
+	PIT->CHANNEL[1].LDVAL = 0x000028F6; // 10,486 cycles @ 10.4Mhz = 1 ms per interrupt
 	PIT->CHANNEL[1].TCTRL |= (1 << 1); // Enable interrupts for channel 1
 
 
 	PIT->CHANNEL[1].TCTRL |= 0x1; //Enable channel 1
 	PIT->CHANNEL[0].TCTRL |= 0x1; //Enable channel 0
-
-	scheduler.list_start->next = NULL;
-	scheduler.list_start->prev = NULL;
-	scheduler.list_end->next = NULL;
-	scheduler.list_end->prev = NULL;
 
 	process_begin(); // Initialize the first process
 }
@@ -291,11 +292,11 @@ node * rt_process_select(double_linked_list * list, realtime_t cur_time) {
 		return NULL;
 	} else {
 		cur_node = list->list_start;
-		while(cur_node != NULL && compare_realtimes(cur_node->val->start, cur_time) == 1) {
+		while(cur_node != NULL && compare_realtimes(cur_node->val->start, cur_time) >= 0) {
 			cur_node = cur_node->next;
 		}
 
-		// reached end of list, i.e. no node in list has start time before or equal to cur_time
+		// reached end of list, i.e. no node in list has start time before cur_time
 		if(cur_node == NULL) {
 			return NULL;
 		} else { // cur_node is the realtime process with earliest deadline that also has start time before or equal to current time
@@ -322,40 +323,70 @@ unsigned int * process_select(unsigned int * cursp){
 	if(cursp == NULL){ // Either the running process finished or it is the first time process_select is being called
 		if(!first_select){ //If its not the first time, free memory from the running process
 			if(current_process != NULL && current_process->is_rt){
-				add_elem_begin(&scheduler, fst);
+				if(fst != NULL)
+					add_elem_begin(&scheduler, fst);
+				// Check to see if it made or missed its deadline
+				if(compare_realtimes(current_process->deadline, current_time) >= 0){
+					process_deadline_met++;
+				}else{
+					process_deadline_miss++;
+				}
 			}
 			process_stack_free(current_process->orig_sp, current_process->n);
 			free(current_process);
 			current_process = NULL;
 		}else{ // If it is the first time, put the element back in the front of the queue
-			add_elem_begin(&scheduler, fst);
-			first_select = false;
+			if(fst != NULL){
+				add_elem_begin(&scheduler, fst);
+			}
 		}
 	}else{
 		current_process->sp = cursp;
 		//Put running process back into queue
 		if(current_process != NULL && current_process->is_rt){
-			add_elem_begin(&scheduler, fst);
+			if(fst != NULL)
+				add_elem_begin(&scheduler, fst);
 		}else{
-			add_elem_end(&scheduler, fst);
+			if(fst != NULL)
+				add_elem_end(&scheduler, fst);
 		}
 	}
 
-	if(current_process != NULL && current_process->is_rt){
+	first_select = false;
+
+	/*if(current_process != NULL && current_process->is_rt){
 		current_process->sp = cursp;
 		return current_process->sp;
-	}
+	}*/
 
-	// Both queues are empty, we are done
+	// Both queues are empty
 	if(scheduler.list_start == NULL && rt_scheduler.list_start == NULL){
-		return NULL;
+		if(current_process == NULL){ // We're done
+			return NULL;
+		}else{ // Finish the running process
+			return current_process->sp;
+		}
 	}
 
-	node *nxt = rt_process_select(&rt_scheduler, current_time);
+	node *nxt = rt_process_select(&rt_scheduler, current_time); // Check shortest ready deadline (other than possibly current process)
+
 	//There is a RT process ready
 	if(nxt != NULL){
-		current_process = nxt->val;
-		free(nxt);
+		if(current_process != NULL && current_process->is_rt &&
+				compare_realtimes(current_process->deadline, nxt->val->deadline) > 0){ // New pick has a earlier deadline
+			node *new_elem_ptr = malloc(sizeof(node));
+			new_elem_ptr->val = current_process;
+			add_elem_rt_sorted(&rt_scheduler, new_elem_ptr); //Add current process back to queue
+			current_process = nxt->val; // Make new process current
+			free(nxt);
+		}else if(current_process != NULL && current_process->is_rt ){ // New pick has a later deadline
+			add_elem_rt_sorted(&rt_scheduler, nxt); //Add new pick back to queue
+		}else{ // Current process is non-RT, so preempt
+			current_process = nxt->val; // Make new process current
+			free(nxt);
+		}
+	}else if(current_process != NULL && current_process->is_rt){
+		current_process->sp = cursp;
 	}else if(scheduler.list_start != NULL){ // There are no RT ready but there are non-RT
 		current_process = scheduler.list_start->val;
 	}else{ // There are no RT ready and there are also no non-RT
@@ -364,14 +395,12 @@ unsigned int * process_select(unsigned int * cursp){
 			// poll pit timer to update the timer
 			if(PIT->CHANNEL[1].TFLG == 1){
 				PIT1_Service();
-				PIT->CHANNEL[1].TFLG = 1;
 			}
 			nxt = rt_process_select(&rt_scheduler, current_time);
 		}
 		current_process = nxt->val;
 		free(nxt);
 	}
-
 	//Return the stack pointer of the new process
 	return current_process->sp;
 }
